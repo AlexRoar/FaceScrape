@@ -11,7 +11,7 @@ class FaceLoader:
     cascade_path = 'haarcascade_frontalface_alt2.xml'
     image_size = 160
     
-    def __init__(self, url, margin=20, quality=0):
+    def __init__(self, url, margin=20):
         self.img_url = url
         self.margin = margin
         self.url_hash = str(hashlib.md5(url.encode()).hexdigest())
@@ -20,7 +20,6 @@ class FaceLoader:
         ext = url.split('.')[-1]
         self.local_url = "tmp/" + self.url_hash + "." + ext
         self.local_files = []
-        self.quality = quality
         try:
             self.downloadImg()
         except:
@@ -29,7 +28,7 @@ class FaceLoader:
     def downloadImg(self):
         if not os.path.isdir("tmp"):
             os.mkdir("tmp")
-        ext = self.img_url.split('.')[-1 - self.quality]
+        ext = self.img_url.split('.')[-1]
         self.local_url = "tmp/" + self.url_hash + "." + ext
         urllib.request.urlretrieve(self.img_url, self.local_url)
         self.local_files = [self.local_url]

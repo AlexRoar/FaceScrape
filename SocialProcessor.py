@@ -7,12 +7,11 @@ import uuid
 
 
 class SocialProcessor:
-    def __init__(self, connection, model, batch=512, quality=0):
+    def __init__(self, connection, model, batch=512):
         self.batch = batch
         self.connection = connection
         self.model = model
         self.size = FaceLoader.image_size
-        self.quality = quality
 
     def addRecords(self, data):
         for i, row in enumerate(data):
@@ -31,7 +30,7 @@ class SocialProcessor:
         faces = np.zeros((0, self.size, self.size, 3))
         links = []
         for url in tqdm.tqdm(photo_links):
-            face_obj = FaceLoader(url, margin=20, quality=self.quality)
+            face_obj = FaceLoader(url, margin=20)
             faces_tmp = face_obj.load_and_align_image(margin=20)
             if len(faces_tmp) == 0:
                 continue
@@ -40,7 +39,7 @@ class SocialProcessor:
             del face_obj
         return faces, links
 
-    def processVkUser(self, api, ow_id):
+    def processVkUser(self, api, ow_id, min_quality=3, des_type='x'):
         photo_links = []
         try:
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200)
@@ -52,7 +51,11 @@ class SocialProcessor:
         offset = 0
         while count > 0:
             for i in init_get['items']:
-                photo_links.append(i['sizes'][-1]["url"])
+                for j in range(-1, -1 - min_quality, -1):
+                    if i['sizes'][j]['type'] == des_type or j == -min_quality:
+                        photo_links.append(i['sizes'][j]["url"])
+                        print(i['sizes'][j]['type'])
+                        break
             count -= len(init_get['items'])
             offset += len(init_get['items'])
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200, offset=offset)

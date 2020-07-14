@@ -1,0 +1,71 @@
+import numpy as np
+import tqdm
+from FaceLoader import FaceLoader
+import time
+import json
+
+
+class SocialProcessor:
+    def __init__(self, connection, model, batch=512):
+        self.batch = batch
+        self.connection = connection
+        self.model = model
+        self.size = FaceLoader.image_size
+
+    def addRecords(self, data):
+        c = self.connection.cursor()
+        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?)', data)
+        self.connection.commit()
+
+    def addRecord(self, img_url, embeddings, created_at, user_id, service, img_area):
+        c = self.connection.cursor()
+        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?)',
+                      [[img_url, embeddings, created_at, user_id, service, img_area]])
+        self.connection.commit()
+
+    def getFacesFromLinks(self, photo_links):
+        faces = np.zeros((0, self.size, self.size, 3))
+        links = []
+        for url in tqdm.tqdm(photo_links):
+            face_obj = FaceLoader(url, margin=20)
+            faces_tmp = face_obj.load_and_align_image(margin=20)
+            if len(faces_tmp) == 0:
+                continue
+            faces = np.vstack((faces, faces_tmp))
+            links += [url] * len(faces)
+            del face_obj
+        return faces, links
+
+    def processVkUser(self, api, ow_id):
+        photo_links = []
+        try:
+            init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200)
+        except:
+            return
+        count = init_get['count']
+        if count == 0:
+            return
+        offset = 0
+        while count > 0:
+            for i in init_get['items']:
+                photo_links.append(i['sizes'][-1]["url"])
+            count -= len(init_get['items'])
+            offset += len(init_get['items'])
+            init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200, offset=offset)
+        faces, links = self.getFacesFromLinks(photo_links)
+
+        embedded = FaceLoader.calc_embs_static(self.model, images=faces, batch_size=self.batch)
+        data = list(zip(embedded, links, faces))
+
+        for i, row in enumerate(data):
+            tmp_row = list(map(str, (
+                row[1],
+                json.dumps(list(map(float, list(row[0])))),
+                time.time(),
+                ow_id,
+                "vk",
+                json.dumps(row[2].tolist())
+            )))
+            data[i] = tmp_row
+
+        self.addRecords(data)

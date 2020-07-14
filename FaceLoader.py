@@ -9,7 +9,7 @@ import numpy as np
 
 
 class FaceLoader:
-    cascade_path = 'haarcascade_frontalface_default.xml'
+    cascade_path = 'haarcascade_frontalface_alt2.xml'
     image_size = 160
 
     def __init__(self, url, margin=20):
@@ -75,8 +75,14 @@ class FaceLoader:
             except:
                 return []
             img = imread(self.local_url)
+        if len(img.shape) != 3:
+            return []
+        try:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        except:
+            return []
 
-        faces = cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=3)
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         for x, y, w, h in faces:
             try:
                 cropped = img[max(y - margin // 2, 0): y + h + margin // 2,

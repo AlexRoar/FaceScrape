@@ -4,27 +4,31 @@ from FaceLoader import FaceLoader
 import time
 import json
 import uuid
+import random
 
 
 class SocialProcessor:
-    def __init__(self, connection, model, batch=512):
+    def __init__(self, connection, model, batch=512, limit=1200):
         self.batch = batch
         self.connection = connection
         self.model = model
         self.size = FaceLoader.image_size
+        self.limit = limit
 
     def addRecords(self, data):
         for i, row in enumerate(data):
-            data[i] = row + [str(uuid.uuid4())]
+            data[i] = list(row) + [str(uuid.uuid4())]
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?, ?)', data)
+        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s,%s)', data)
         self.connection.commit()
+        print("Added %s rows" % (len(data)))
 
     def addRecord(self, img_url, embeddings, created_at, user_id, service, img_area):
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?, ?)',
+        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s,%s)',
                       [[img_url, embeddings, created_at, user_id, service, img_area, str(uuid.uuid4())]])
         self.connection.commit()
+        print("Added 1 row")
 
     def getFacesFromLinks(self, photo_links):
         faces = np.zeros((0, self.size, self.size, 3))
@@ -35,7 +39,7 @@ class SocialProcessor:
             if len(faces_tmp) == 0:
                 continue
             faces = np.vstack((faces, faces_tmp))
-            links += [url] * len(faces)
+            links += [url] * len(faces_tmp)
             del face_obj
         return faces, links
 
@@ -50,16 +54,17 @@ class SocialProcessor:
             return
         offset = 0
         while count > 0:
+            random.shuffle(init_get['items'])
+            init_get['items'] = init_get['items']
             for i in init_get['items']:
                 for j in range(-1, -1 - min_quality, -1):
                     if i['sizes'][j]['type'] == des_type or j == -min_quality:
                         photo_links.append(i['sizes'][j]["url"])
-                        print(i['sizes'][j]['type'])
                         break
             count -= len(init_get['items'])
             offset += len(init_get['items'])
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200, offset=offset)
-        faces, links = self.getFacesFromLinks(photo_links)
+        faces, links = self.getFacesFromLinks(photo_links[:self.limit])
 
         embedded = FaceLoader.calc_embs_static(self.model, images=faces, batch_size=self.batch)
         data = list(zip(embedded, links, faces))
@@ -88,3 +93,22 @@ class SocialProcessor:
     def loadBaseEmbsImg(self):
         c = self.connection.cursor()
         return c.execute('SELECT img_url, img_area FROM global_table WHERE 1')
+
+    def findMatches(self, embedding, threshold=1.0, batch=200):
+        c = self.connection.cursor()
+        total = list(c.execute('SELECT COUNT(scrape_id) FROM global_table WHERE 1'))[0][0]
+        results = []
+        for i in range(0, total//batch + 1):
+            offset = i*batch
+            data = c.execute('SELECT img_url, embeddings, created_at, user_id, service, img_area, scrape_id FROM global_table WHERE 1 LIMIT %s OFFSET %s' % (batch, offset))
+            for row in data:
+                emb = np.array(json.loads(row[1]))
+                dist = FaceLoader.calc_dist(emb, embedding)
+                row = list(row) + [dist]
+                if dist > threshold:
+                    continue
+                else:
+                    results.append(row)
+        results = list(sorted(results, key=lambda x: x[-1], reverse=False))
+        return results
+

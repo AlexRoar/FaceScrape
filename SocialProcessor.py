@@ -5,6 +5,9 @@ import time
 import json
 import uuid
 import random
+import os
+import imageio
+from skimage import img_as_ubyte
 
 
 class SocialProcessor:
@@ -14,20 +17,36 @@ class SocialProcessor:
         self.model = model
         self.size = FaceLoader.image_size
         self.limit = limit
+        if not os.path.isdir("fragments"):
+            os.mkdir("fragments")
 
     def addRecords(self, data):
         for i, row in enumerate(data):
             data[i] = list(row) + [str(uuid.uuid4())]
+
+        data1 = []
+        data2 = []
+
+        for i, row in enumerate(data):
+            data1.append(row[0:5] + [row[-1]])
+            data2.append([row[-1], row[5]])
+
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s,%s)', data)
+        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s)', data1)
         self.connection.commit()
+
+        for hash, content in data2:
+            imageio.imwrite('fragments/'+hash+'.png', img_as_ubyte(content))
+
         print("Added %s rows" % (len(data)))
 
     def addRecord(self, img_url, embeddings, created_at, user_id, service, img_area):
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                      [[img_url, embeddings, created_at, user_id, service, img_area, str(uuid.uuid4())]])
+        hash = str(uuid.uuid4())
+        c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s)',
+                      [[img_url, embeddings, created_at, user_id, service, hash]])
         self.connection.commit()
+        imageio.imwrite('fragments/' + hash + '.png', img_as_ubyte(img_area))
         print("Added 1 row")
 
     def getFacesFromLinks(self, photo_links):
@@ -70,37 +89,40 @@ class SocialProcessor:
         data = list(zip(embedded, links, faces))
 
         for i, row in enumerate(data):
-            tmp_row = list(map(str, (
-                row[1],
-                json.dumps(list(map(float, list(row[0])))),
-                time.time(),
-                ow_id,
+            tmp_row =[
+                str(row[1]),
+                str(json.dumps(list(map(float, list(row[0]))))),
+                str(time.time()),
+                str(ow_id),
                 "vk",
-                json.dumps(row[2].tolist())
-            )))
+                row[2]
+            ]
             data[i] = tmp_row
 
         self.addRecords(data)
 
     def loadBase(self):
         c = self.connection.cursor()
-        return c.execute('SELECT * FROM global_table WHERE 1')
+        c.execute('SELECT * FROM global_table WHERE 1')
+        return c.fetchall()
 
     def loadBaseEmbsUrls(self):
         c = self.connection.cursor()
-        return c.execute('SELECT img_url, embeddings FROM global_table WHERE 1')
-
-    def loadBaseEmbsImg(self):
-        c = self.connection.cursor()
-        return c.execute('SELECT img_url, img_area FROM global_table WHERE 1')
+        c.execute('SELECT img_url, embeddings FROM global_table WHERE 1')
+        return c.fetchall()
 
     def findMatches(self, embedding, threshold=1.0, batch=200):
         c = self.connection.cursor()
-        total = list(c.execute('SELECT COUNT(scrape_id) FROM global_table WHERE 1'))[0][0]
+        c.execute('SELECT COUNT(scrape_id) FROM global_table WHERE 1')
+        total = list(c.fetchall())[0][0]
         results = []
-        for i in range(0, total//batch + 1):
-            offset = i*batch
-            data = c.execute('SELECT img_url, embeddings, created_at, user_id, service, img_area, scrape_id FROM global_table WHERE 1 LIMIT %s OFFSET %s' % (batch, offset))
+        for i in range(0, total // batch + 1):
+            offset = i * batch
+            c = self.connection.cursor()
+            c.execute(
+                'SELECT img_url, embeddings, created_at, user_id, service, scrape_id FROM global_table WHERE 1 LIMIT %s OFFSET %s' % (
+                    batch, offset))
+            data = c.fetchall()
             for row in data:
                 emb = np.array(json.loads(row[1]))
                 dist = FaceLoader.calc_dist(emb, embedding)
@@ -111,4 +133,3 @@ class SocialProcessor:
                     results.append(row)
         results = list(sorted(results, key=lambda x: x[-1], reverse=False))
         return results
-

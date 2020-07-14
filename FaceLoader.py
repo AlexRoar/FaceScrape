@@ -64,9 +64,7 @@ class FaceLoader:
         if margin is None:
             margin = self.margin
         cascade = cv2.CascadeClassifier(self.cascade_path)
-
         aligned_images = []
-
         try:
             img = imread(self.local_url)
         except:
@@ -88,7 +86,6 @@ class FaceLoader:
                 cropped = img[max(y - margin // 2, 0): y + h + margin // 2,
                           max(x - margin // 2, 0): x + w + margin // 2, :]
             except:
-                print(img.shape)
                 continue
             aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
 

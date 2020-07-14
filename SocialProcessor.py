@@ -3,31 +3,35 @@ import tqdm
 from FaceLoader import FaceLoader
 import time
 import json
+import uuid
 
 
 class SocialProcessor:
-    def __init__(self, connection, model, batch=512):
+    def __init__(self, connection, model, batch=512, quality=0):
         self.batch = batch
         self.connection = connection
         self.model = model
         self.size = FaceLoader.image_size
+        self.quality = quality
 
     def addRecords(self, data):
+        for i, row in enumerate(data):
+            data[i] = row + [str(uuid.uuid4())]
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?)', data)
+        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?, ?)', data)
         self.connection.commit()
 
     def addRecord(self, img_url, embeddings, created_at, user_id, service, img_area):
         c = self.connection.cursor()
-        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?)',
-                      [[img_url, embeddings, created_at, user_id, service, img_area]])
+        c.executemany('INSERT INTO global_table VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      [[img_url, embeddings, created_at, user_id, service, img_area, str(uuid.uuid4())]])
         self.connection.commit()
 
     def getFacesFromLinks(self, photo_links):
         faces = np.zeros((0, self.size, self.size, 3))
         links = []
         for url in tqdm.tqdm(photo_links):
-            face_obj = FaceLoader(url, margin=20)
+            face_obj = FaceLoader(url, margin=20, quality=self.quality)
             faces_tmp = face_obj.load_and_align_image(margin=20)
             if len(faces_tmp) == 0:
                 continue
@@ -69,3 +73,11 @@ class SocialProcessor:
             data[i] = tmp_row
 
         self.addRecords(data)
+
+    def loadBase(self):
+        c = self.connection.cursor()
+        return c.execute('SELECT * FROM global_table WHERE 1')
+
+    def loadBaseEmbsUrls(self):
+        c = self.connection.cursor()
+        return c.execute('SELECT img_url, embeddings FROM global_table WHERE 1')

@@ -7,10 +7,11 @@ from skimage.transform import resize
 from scipy.spatial import distance
 import numpy as np
 
+
 class FaceLoader:
-    cascade_path = 'haarcascade_frontalface_alt2.xml'
+    cascade_path = 'haarcascade_frontalface_default.xml'
     image_size = 160
-    
+
     def __init__(self, url, margin=20):
         self.img_url = url
         self.margin = margin
@@ -24,7 +25,7 @@ class FaceLoader:
             self.downloadImg()
         except:
             pass
-       
+
     def downloadImg(self):
         if not os.path.isdir("tmp"):
             os.mkdir("tmp")
@@ -32,12 +33,11 @@ class FaceLoader:
         self.local_url = "tmp/" + self.url_hash + "." + ext
         urllib.request.urlretrieve(self.img_url, self.local_url)
         self.local_files = [self.local_url]
-    
-    def __del__(self): 
+
+    def __del__(self):
         for i in self.local_files:
             os.remove(i)
-   
-   
+
     @staticmethod
     def prewhiten(x):
         if x.ndim == 4:
@@ -51,7 +51,7 @@ class FaceLoader:
 
         mean = np.mean(x, axis=axis, keepdims=True)
         std = np.std(x, axis=axis, keepdims=True)
-        std_adj = np.maximum(std, 1.0/np.sqrt(size))
+        std_adj = np.maximum(std, 1.0 / np.sqrt(size))
         y = (x - mean) / std_adj
         return y
 
@@ -59,7 +59,7 @@ class FaceLoader:
     def l2_normalize(x, axis=-1, epsilon=1e-10):
         output = x / np.sqrt(np.maximum(np.sum(np.square(x), axis=axis, keepdims=True), epsilon))
         return output
-    
+
     def load_and_align_image(self, margin=None):
         if margin is None:
             margin = self.margin
@@ -76,21 +76,20 @@ class FaceLoader:
                 return []
             img = imread(self.local_url)
 
-
         faces = cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=3)
         for x, y, w, h in faces:
             try:
-                cropped = img[max(y - margin//2, 0) : y + h + margin//2,
-                              max(x - margin//2, 0) : x + w + margin//2, :]
+                cropped = img[max(y - margin // 2, 0): y + h + margin // 2,
+                          max(x - margin // 2, 0): x + w + margin // 2, :]
             except:
                 print(img.shape)
                 continue
             aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
-        
+
             aligned_images.append(aligned)
 
         return np.array(aligned_images)
-    
+
     def calc_embs(self, model, images=None, margin=None, batch_size=10):
         if margin is None:
             margin = self.margin
@@ -104,7 +103,7 @@ class FaceLoader:
             pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
         embs = FaceLoader.l2_normalize(np.concatenate(pd))
         return embs
-    
+
     @staticmethod
     def calc_embs_static(model, images, batch_size=10):
         if len(images) == 0:
@@ -115,7 +114,7 @@ class FaceLoader:
             pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
         embs = FaceLoader.l2_normalize(np.concatenate(pd))
         return embs
-    
+
     @staticmethod
     def calc_dist(img_emb0, img_emb1):
         return distance.euclidean(img_emb0, img_emb1)

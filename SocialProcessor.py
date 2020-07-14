@@ -84,3 +84,7 @@ class SocialProcessor:
     def loadBaseEmbsUrls(self):
         c = self.connection.cursor()
         return c.execute('SELECT img_url, embeddings FROM global_table WHERE 1')
+
+    def loadBaseEmbsImg(self):
+        c = self.connection.cursor()
+        return c.execute('SELECT img_url, img_area FROM global_table WHERE 1')

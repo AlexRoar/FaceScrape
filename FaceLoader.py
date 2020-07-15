@@ -2,11 +2,11 @@ import os
 import urllib.request
 import hashlib
 import cv2
-from imageio import imread
 from skimage.transform import resize
 from scipy.spatial import distance
 import numpy as np
 from copy import deepcopy
+from shutil import copyfile
 
 
 class FaceLoader:
@@ -41,7 +41,10 @@ class FaceLoader:
             os.mkdir(self.prefix + "tmp")
         ext = self.img_url.split('.')[-1]
         self.local_url = self.prefix + "tmp/" + self.url_hash + "." + ext
-        urllib.request.urlretrieve(self.img_url, self.local_url)
+        if "https://" in self.img_url or "http://" in self.img_url or "www." in self.img_url:
+            urllib.request.urlretrieve(self.img_url, self.local_url)
+        else:
+            copyfile(self.img_url, self.local_url)
         self.local_files = [self.local_url]
 
     def __del__(self):
@@ -105,9 +108,22 @@ class FaceLoader:
                 continue
             box = (face[3:7] * np.array([w, h, w, h])).astype("int")
             (startX, startY, endX, endY) = box.astype("int")
+            startX = min(startX, endX)
+            endX = max(startX, endX)
+            startY = min(startY, endY)
+            endY = max(startY, endY)
+
+            h_rect = endY - startY
+            w_rect = endX - startX
+            m_w = 0
+            m_h = 0
+            if h_rect > w_rect:
+                m_w = (h_rect - w_rect) / 2
+            else:
+                m_h = (h_rect - w_rect) / -2
             try:
-                cropped = img[max(startY - margin // 2, 0): min(endY + margin // 2, img.shape[0]),
-                          max(startX - margin // 2, 0): min(endX + margin // 2, img.shape[1]), :]
+                cropped = img[int(max(startY - margin // 2 - m_h, 0)): int(min(endY + margin // 2 + m_h, img.shape[0])),
+                          int(max(startX - margin // 2 - m_w, 0)):int( min(endX + margin // 2 + m_w, img.shape[1])), :]
             except:
                 print("Failed face on", self.local_url)
                 continue

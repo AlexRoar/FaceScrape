@@ -37,7 +37,7 @@ class SocialProcessor:
         self.connection.commit()
 
         for hash, content in data2:
-            imageio.imwrite(self.prefix + 'fragments/'+hash+'.png', img_as_ubyte(content))
+            imageio.imwrite(self.prefix + 'fragments/' + hash + '.png', img_as_ubyte(content))
 
         print("Added %s rows" % (len(data)))
 
@@ -54,7 +54,7 @@ class SocialProcessor:
         faces = np.zeros((0, self.size, self.size, 3))
         links = []
         for url in tqdm.tqdm_notebook(photo_links):
-            face_obj = FaceLoader(url, margin=20, prefix = self.prefix)
+            face_obj = FaceLoader(url, margin=20, prefix=self.prefix)
             faces_tmp = face_obj.load_and_align_image(margin=20)
             if len(faces_tmp) == 0:
                 continue
@@ -86,13 +86,14 @@ class SocialProcessor:
             count -= len(init_get['items'])
             offset += len(init_get['items'])
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200, offset=offset)
+        print("Procesing", ow_id)
         faces, links = self.getFacesFromLinks(photo_links[:self.limit])
 
         embedded = FaceLoader.calc_embs_static(self.model, images=faces, batch_size=self.batch)
         data = list(zip(embedded, links, faces))
 
         for i, row in enumerate(data):
-            tmp_row =[
+            tmp_row = [
                 str(row[1]),
                 str(json.dumps(list(map(float, list(row[0]))))),
                 str(time.time()),
@@ -146,7 +147,8 @@ class SocialProcessor:
         hash = str(uuid.uuid4())
         created_at = time.time()
         c = self.connection.cursor(buffered=True)
-        c.execute('INSERT INTO `process_query`(`id`, `service`, `created_at`, `query_id`) VALUES (%s, %s, %s, %s)', [id, service, created_at, hash])
+        c.execute('INSERT INTO `process_query`(`id`, `service`, `created_at`, `query_id`) VALUES (%s, %s, %s, %s)',
+                  [id, service, created_at, hash])
         self.connection.commit()
         c.close()
 

@@ -46,7 +46,8 @@ class FaceLoader:
 
     def __del__(self):
         for i in self.local_files:
-            os.remove(i)
+            if os.path.isfile(i):
+                os.remove(i)
 
     @staticmethod
     def prewhiten(x):
@@ -82,7 +83,12 @@ class FaceLoader:
             except:
                 return []
             img = cv2.imread(self.local_url)
-        if len(img.shape) != 3:
+        try:
+            if img is None:
+                return []
+            if len(img.shape) != 3:
+                return []
+        except:
             return []
         (h, w) = img.shape[:2]
 
@@ -105,7 +111,10 @@ class FaceLoader:
             except:
                 print("Failed face on", self.local_url)
                 continue
-            if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+            try:
+                if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                    continue
+            except:
                 continue
             aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
             aligned_images.append(aligned)

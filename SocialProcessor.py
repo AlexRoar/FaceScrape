@@ -11,7 +11,7 @@ from skimage import img_as_ubyte
 
 
 class SocialProcessor:
-    def __init__(self, connection, model, batch=512, limit=1200, prefix='./'):
+    def __init__(self, connection, model, batch=128, limit=1200, prefix='./'):
         self.batch = batch
         self.connection = connection
         self.model = model
@@ -63,7 +63,7 @@ class SocialProcessor:
             del face_obj
         return faces, links
 
-    def processVkUser(self, api, ow_id, min_quality=3, des_type='x'):
+    def processVkUser(self, api, ow_id, min_quality=4, des_type='x'):
         photo_links = []
         try:
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200)
@@ -101,18 +101,22 @@ class SocialProcessor:
                 row[2]
             ]
             data[i] = tmp_row
-
+        print("%s:" % (ow_id))
         self.addRecords(data)
 
     def loadBase(self):
         c = self.connection.cursor(buffered=True)
         c.execute('SELECT * FROM global_table WHERE 1')
-        return c.fetchall()
+        data = c.fetchall()
+        c.close()
+        return data
 
     def loadBaseEmbsUrls(self):
         c = self.connection.cursor(buffered=True)
         c.execute('SELECT img_url, embeddings FROM global_table WHERE 1')
-        return c.fetchall()
+        data = c.fetchall()
+        c.close()
+        return data
 
     def findMatches(self, embedding, threshold=1.0, batch=200):
         c = self.connection.cursor(buffered=True)
@@ -148,12 +152,26 @@ class SocialProcessor:
 
     def getTask(self, service="vk"):
         c = self.connection.cursor(buffered=True)
+        c.execute('SELECT * FROM process_query WHERE service=%s LIMIT 1', [service])
+        tasks = list(c.fetchall())
+        c.close()
+        return tasks[0]
+
+    def getAllTasks(self, service="vk"):
+        c = self.connection.cursor(buffered=True)
         c.execute('SELECT * FROM process_query WHERE service=%s', [service])
         tasks = list(c.fetchall())
-        return tasks[0]
+        return tasks
 
     def delTask(self, query_id):
         c = self.connection.cursor(buffered=True)
         c.execute('DELETE FROM process_query WHERE query_id=%s', [query_id])
         self.connection.commit()
         c.close()
+
+    def alreadyParsed(self, service="vk"):
+        c = self.connection.cursor(buffered=True)
+        c.execute('SELECT DISTINCT user_id FROM global_table WHERE service=%s', [service])
+        tasks = list(c.fetchall())
+        c.close()
+        return set([i[0] for i in tasks])

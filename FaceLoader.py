@@ -6,13 +6,14 @@ from imageio import imread
 from skimage.transform import resize
 from scipy.spatial import distance
 import numpy as np
+from copy import deepcopy
 
 
 class FaceLoader:
     cascade_path = 'haarcascade_frontalface_alt2.xml'
     image_size = 160
 
-    def __init__(self, url, margin=20, prefix='./'):
+    def __init__(self, url, margin=20, prefix='./', f_model=None):
         self.img_url = url
         self.margin = margin
         self.prefix = prefix
@@ -28,6 +29,12 @@ class FaceLoader:
             raise KeyboardInterrupt
         except:
             pass
+        if f_model is None:
+            f_model = cv2.dnn.readNetFromCaffe('models/deploy.prototxt.txt',
+                                               'models/res10_300x300_ssd_iter_140000.caffemodel')
+            self.f_model = f_model
+        else:
+            self.f_model = deepcopy(f_model)
 
     def downloadImg(self):
         if not os.path.isdir(self.prefix + "tmp"):
@@ -63,46 +70,88 @@ class FaceLoader:
         output = x / np.sqrt(np.maximum(np.sum(np.square(x), axis=axis, keepdims=True), epsilon))
         return output
 
-    def load_and_align_image(self, margin=None):
+    def load_and_align_image(self, margin=None, confidence=0.55):
         if margin is None:
             margin = self.margin
-        cascade = cv2.CascadeClassifier(self.cascade_path)
         aligned_images = []
         try:
-            img = imread(self.local_url)
-        except (KeyboardInterrupt, SystemExit):
-            raise KeyboardInterrupt
+            img = cv2.imread(self.local_url)
         except:
             try:
                 self.downloadImg()
-            except (KeyboardInterrupt, SystemExit):
-                raise KeyboardInterrupt
             except:
                 return []
-            img = imread(self.local_url)
+            img = cv2.imread(self.local_url)
         if len(img.shape) != 3:
             return []
-        try:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        except (KeyboardInterrupt, SystemExit):
-            raise KeyboardInterrupt
-        except:
-            return []
+        (h, w) = img.shape[:2]
 
-        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-        for x, y, w, h in faces:
+        blob = cv2.dnn.blobFromImage(cv2.resize(img, (300, 300)), 1.0,
+                                     (300, 300), (104.0, 177.0, 123.0))
+
+        self.f_model.setInput(blob)
+        detections = self.f_model.forward()
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        for face in detections[0, 0]:
+            con = face[2]
+            if con <= confidence:
+                continue
+            box = (face[3:7] * np.array([w, h, w, h])).astype("int")
+            (startX, startY, endX, endY) = box.astype("int")
             try:
-                cropped = img[max(y - margin // 2, 0): y + h + margin // 2,
-                          max(x - margin // 2, 0): x + w + margin // 2, :]
-            except (KeyboardInterrupt, SystemExit):
-                raise KeyboardInterrupt
+                cropped = img[max(startY - margin // 2, 0): min(endY + margin // 2, img.shape[0]),
+                          max(startX - margin // 2, 0): min(endX + margin // 2, img.shape[1]), :]
             except:
+                print("Failed face on", self.local_url)
+                continue
+            if cropped.shape[0] == 0 or cropped.shape[1] == 0:
                 continue
             aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
-
             aligned_images.append(aligned)
 
         return np.array(aligned_images)
+
+    # def load_and_align_image(self, margin=None):
+    #     if margin is None:
+    #         margin = self.margin
+    #     cascade = cv2.CascadeClassifier(self.cascade_path)
+    #     aligned_images = []
+    #     try:
+    #         img = imread(self.local_url)
+    #     except (KeyboardInterrupt, SystemExit):
+    #         raise KeyboardInterrupt
+    #     except:
+    #         try:
+    #             self.downloadImg()
+    #         except (KeyboardInterrupt, SystemExit):
+    #             raise KeyboardInterrupt
+    #         except:
+    #             return []
+    #         img = imread(self.local_url)
+    #     if len(img.shape) != 3:
+    #         return []
+    #     try:
+    #         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    #     except (KeyboardInterrupt, SystemExit):
+    #         raise KeyboardInterrupt
+    #     except:
+    #         return []
+    #
+    #     faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30), flags = cv2.cv.CV_HAAR_SCALE_IMAGE)
+    #     for x, y, w, h in faces:
+    #         try:
+    #             cropped = img[max(y - margin // 2, 0): min(y + h + margin // 2, img.shape[0]),
+    #                       max(x - margin // 2, 0): min(x + w + margin // 2, img.shape[1]), :]
+    #         except (KeyboardInterrupt, SystemExit):
+    #             raise KeyboardInterrupt
+    #         except:
+    #             continue
+    #         aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
+    #
+    #         aligned_images.append(aligned)
+    #
+    #     return np.array(aligned_images)
 
     def calc_embs(self, model, images=None, margin=None, batch_size=10):
         if margin is None:

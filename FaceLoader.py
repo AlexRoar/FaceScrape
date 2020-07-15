@@ -12,25 +12,28 @@ class FaceLoader:
     cascade_path = 'haarcascade_frontalface_alt2.xml'
     image_size = 160
 
-    def __init__(self, url, margin=20):
+    def __init__(self, url, margin=20, prefix='./'):
         self.img_url = url
         self.margin = margin
+        self.prefix = prefix
         self.url_hash = str(hashlib.md5(url.encode()).hexdigest())
-        if not os.path.isdir("tmp"):
-            os.mkdir("tmp")
+        if not os.path.isdir(self.prefix + "tmp"):
+            os.mkdir(self.prefix + "tmp")
         ext = url.split('.')[-1]
-        self.local_url = "tmp/" + self.url_hash + "." + ext
+        self.local_url = self.prefix + "tmp/" + self.url_hash + "." + ext
         self.local_files = []
         try:
             self.downloadImg()
+        except (KeyboardInterrupt, SystemExit):
+            raise KeyboardInterrupt
         except:
             pass
 
     def downloadImg(self):
-        if not os.path.isdir("tmp"):
-            os.mkdir("tmp")
+        if not os.path.isdir(self.prefix + "tmp"):
+            os.mkdir(self.prefix + "tmp")
         ext = self.img_url.split('.')[-1]
-        self.local_url = "tmp/" + self.url_hash + "." + ext
+        self.local_url = self.prefix + "tmp/" + self.url_hash + "." + ext
         urllib.request.urlretrieve(self.img_url, self.local_url)
         self.local_files = [self.local_url]
 
@@ -67,9 +70,13 @@ class FaceLoader:
         aligned_images = []
         try:
             img = imread(self.local_url)
+        except (KeyboardInterrupt, SystemExit):
+            raise KeyboardInterrupt
         except:
             try:
                 self.downloadImg()
+            except (KeyboardInterrupt, SystemExit):
+                raise KeyboardInterrupt
             except:
                 return []
             img = imread(self.local_url)
@@ -77,6 +84,8 @@ class FaceLoader:
             return []
         try:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        except (KeyboardInterrupt, SystemExit):
+            raise KeyboardInterrupt
         except:
             return []
 
@@ -85,6 +94,8 @@ class FaceLoader:
             try:
                 cropped = img[max(y - margin // 2, 0): y + h + margin // 2,
                           max(x - margin // 2, 0): x + w + margin // 2, :]
+            except (KeyboardInterrupt, SystemExit):
+                raise KeyboardInterrupt
             except:
                 continue
             aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')

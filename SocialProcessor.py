@@ -11,6 +11,7 @@ import cv2
 from skimage import img_as_ubyte
 
 from keras_facenet import FaceNet
+
 embedder = FaceNet()
 
 
@@ -41,7 +42,7 @@ class SocialProcessor:
         self.connection.commit()
 
         for hash, content in data2:
-            imageio.imwrite(self.prefix + 'fragments/' + hash + '.png', (content*255).astype(np.uint8))
+            imageio.imwrite(self.prefix + 'fragments/' + hash + '.png', (content * 255).astype(np.uint8))
 
         print("Added %s rows" % (len(data)))
 
@@ -128,6 +129,7 @@ class SocialProcessor:
         c.execute('SELECT COUNT(scrape_id) FROM global_table WHERE 1')
         total = list(c.fetchall())[0][0]
         results = []
+        embedding = np.array(embedding)
         for i in range(0, total // batch + 1):
             offset = i * batch
             c = self.connection.cursor(buffered=True)
@@ -136,15 +138,16 @@ class SocialProcessor:
                     batch, offset))
             data = c.fetchall()
             c.close()
-            for row in data:
-                emb = np.array(json.loads(row[1]))
-                dist = FaceLoader.calc_dist(emb, embedding)
-                row = list(row) + [dist]
-                if dist > threshold:
-                    continue
-                else:
-                    results.append(row)
-        results = list(sorted(results, key=lambda x: x[-1], reverse=False))
+
+            embs = np.array(list(map(json.loads, list(np.array(data)[:, 1]))))
+            distances = FaceLoader.calc_dist(embs, np.expand_dims(embedding, axis=0))
+            probs = 1 - FaceLoader.calc_dist_cosine(embs, np.expand_dims(embedding, axis=0))
+
+            data = np.array(data)
+            data = np.hstack([data, distances, probs])
+            results = results + list(data)
+
+        results = list(sorted(results, key=lambda x: x[-2], reverse=False))
         return results
 
     def addTask(self, id, service):

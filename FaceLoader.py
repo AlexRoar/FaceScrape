@@ -55,6 +55,7 @@ class FaceLoader:
         for i in self.local_files:
             if os.path.isfile(i):
                 os.remove(i)
+        del self.f_model
 
     @staticmethod
     def prewhiten(x):
@@ -177,11 +178,11 @@ class FaceLoader:
 
     @staticmethod
     def calc_dist(img_emb0, img_emb1):
-        return distance.euclidean(img_emb0, img_emb1)
+        return np.linalg.norm(img_emb0 - img_emb1, axis=-1, keepdims=True)
 
     @staticmethod
     def calc_dist_cosine(img_emb0, img_emb1):
-        return distance.cosine(img_emb0, img_emb1)
+        return np.sum(img_emb0 * img_emb1, keepdims=True, axis=-1) / (np.linalg.norm(img_emb0, axis=-1, keepdims=True) * np.linalg.norm(img_emb1, axis=-1, keepdims=True))
 
     def lossless_resize(self, im, desired_size=300):
         old_size = im.shape[:2]

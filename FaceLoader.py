@@ -7,13 +7,17 @@ from scipy.spatial import distance
 import numpy as np
 from copy import deepcopy
 from shutil import copyfile
+from keras_facenet import FaceNet
+import keras.backend.tensorflow_backend as tb
+tb._SYMBOLIC_SCOPE.value = True
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 
 class FaceLoader:
     cascade_path = 'haarcascade_frontalface_alt2.xml'
     image_size = 160
 
-    def __init__(self, url, margin=20, prefix='./', f_model=None):
+    def __init__(self, url, margin=0.1, prefix='./', f_model=None):
         self.img_url = url
         self.margin = margin
         self.prefix = prefix
@@ -93,9 +97,10 @@ class FaceLoader:
                 return []
         except:
             return []
-        (h, w) = img.shape[:2]
 
-        blob = cv2.dnn.blobFromImage(cv2.resize(img, (300, 300)), 1.0,
+        resized, (top, left, ratio) = self.lossless_resize(img, 300)
+
+        blob = cv2.dnn.blobFromImage(resized, 1.0,
                                      (300, 300), (104.0, 177.0, 123.0))
 
         self.f_model.setInput(blob)
@@ -106,77 +111,40 @@ class FaceLoader:
             con = face[2]
             if con <= confidence:
                 continue
-            box = (face[3:7] * np.array([w, h, w, h])).astype("int")
-            (startX, startY, endX, endY) = box.astype("int")
-            startX = min(startX, endX)
-            endX = max(startX, endX)
-            startY = min(startY, endY)
-            endY = max(startY, endY)
+            box = ((face[3:7] * 300 - np.array([left, top, left, top])) / ratio).astype("int")
+            (startX_t, startY_t, endX_t, endY_t) = box.astype("int")
+            startX, startY, endX, endY = min(startX_t, endX_t), min(startY_t, endY_t), max(startX_t, endX_t), max(startY_t, endY_t)
 
-            h_rect = endY - startY
-            w_rect = endX - startX
-            m_w = 0
-            m_h = 0
-            if h_rect > w_rect:
-                m_w = (h_rect - w_rect) / 2
+            h_rect = abs(endY - startY)
+            w_rect = abs(endX - startX)
+            m_w1, m_w2 = 0, 0
+            m_h1, m_h2 = 0, 0
+            if h_rect >= w_rect:
+                m_w1, m_w2 = (h_rect - w_rect) // 2, (h_rect - w_rect) - (h_rect - w_rect) // 2
             else:
-                m_h = (h_rect - w_rect) / -2
+                m_h1, m_h2 = (w_rect - h_rect) // 2, (w_rect - h_rect) - (w_rect - h_rect) // 2
+            startX = max(startX - m_w1 - int(margin * max(h_rect, w_rect)), 0)
+            endX = min(endX + m_w2 + int(margin * max(h_rect, w_rect)), img.shape[1])
+            startY = max(startY - m_h1 - int(margin * max(h_rect, w_rect)), 0)
+            endY = min(endY + m_h2 + int(margin * max(h_rect, w_rect)), img.shape[0])
+
             try:
-                cropped = img[int(max(startY - margin // 2 - m_h, 0)): int(min(endY + margin // 2 + m_h, img.shape[0])),
-                          int(max(startX - margin // 2 - m_w, 0)):int( min(endX + margin // 2 + m_w, img.shape[1])), :]
+                cropped = img[startY: endY, startX: endX, :]
             except:
                 print("Failed face on", self.local_url)
                 continue
             try:
                 if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                    print('Empty face:', self.img_url, (startX, startY, endX, endY))
                     continue
             except:
                 continue
-            aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
+            aligned, _ = self.lossless_resize(cropped, self.image_size)
+            aligned = resize(aligned, (self.image_size, self.image_size), mode='reflect')
+
             aligned_images.append(aligned)
 
         return np.array(aligned_images)
-
-    # def load_and_align_image(self, margin=None):
-    #     if margin is None:
-    #         margin = self.margin
-    #     cascade = cv2.CascadeClassifier(self.cascade_path)
-    #     aligned_images = []
-    #     try:
-    #         img = imread(self.local_url)
-    #     except (KeyboardInterrupt, SystemExit):
-    #         raise KeyboardInterrupt
-    #     except:
-    #         try:
-    #             self.downloadImg()
-    #         except (KeyboardInterrupt, SystemExit):
-    #             raise KeyboardInterrupt
-    #         except:
-    #             return []
-    #         img = imread(self.local_url)
-    #     if len(img.shape) != 3:
-    #         return []
-    #     try:
-    #         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    #     except (KeyboardInterrupt, SystemExit):
-    #         raise KeyboardInterrupt
-    #     except:
-    #         return []
-    #
-    #     faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30), flags = cv2.cv.CV_HAAR_SCALE_IMAGE)
-    #     for x, y, w, h in faces:
-    #         try:
-    #             cropped = img[max(y - margin // 2, 0): min(y + h + margin // 2, img.shape[0]),
-    #                       max(x - margin // 2, 0): min(x + w + margin // 2, img.shape[1]), :]
-    #         except (KeyboardInterrupt, SystemExit):
-    #             raise KeyboardInterrupt
-    #         except:
-    #             continue
-    #         aligned = resize(cropped, (self.image_size, self.image_size), mode='reflect')
-    #
-    #         aligned_images.append(aligned)
-    #
-    #     return np.array(aligned_images)
 
     def calc_embs(self, model, images=None, margin=None, batch_size=10):
         if margin is None:
@@ -185,24 +153,33 @@ class FaceLoader:
             images = self.load_and_align_image(margin)
         if len(images) == 0:
             return []
-        aligned_images = FaceLoader.prewhiten(images)
-        pd = []
-        for start in range(0, len(aligned_images), batch_size):
-            pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
-        embs = FaceLoader.l2_normalize(np.concatenate(pd))
+        embs = model.embeddings(images)
         return embs
 
     @staticmethod
     def calc_embs_static(model, images, batch_size=10):
         if len(images) == 0:
             return []
-        aligned_images = FaceLoader.prewhiten(images)
-        pd = []
-        for start in range(0, len(aligned_images), batch_size):
-            pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
-        embs = FaceLoader.l2_normalize(np.concatenate(pd))
+        embs = model.embeddings(images)
         return embs
 
     @staticmethod
     def calc_dist(img_emb0, img_emb1):
-        return distance.euclidean(img_emb0, img_emb1)
+        return distance.cosine(img_emb0, img_emb1)
+
+    def lossless_resize(self, im, desired_size=300):
+        old_size = im.shape[:2]
+
+        ratio = float(desired_size) / max(old_size)
+        new_size = tuple([int(x * ratio) for x in old_size])
+
+        im = cv2.resize(im, (new_size[1], new_size[0]))
+
+        delta_w = desired_size - new_size[1]
+        delta_h = desired_size - new_size[0]
+        top, bottom = delta_h // 2, delta_h - (delta_h // 2)
+        left, right = delta_w // 2, delta_w - (delta_w // 2)
+
+        color = [0, 0, 0]
+        return cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT,
+                                  value=color), (top, left, ratio)

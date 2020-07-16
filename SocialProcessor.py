@@ -7,7 +7,11 @@ import uuid
 import random
 import os
 import imageio
+import cv2
 from skimage import img_as_ubyte
+
+from keras_facenet import FaceNet
+embedder = FaceNet()
 
 
 class SocialProcessor:
@@ -37,7 +41,7 @@ class SocialProcessor:
         self.connection.commit()
 
         for hash, content in data2:
-            imageio.imwrite(self.prefix + 'fragments/' + hash + '.png', img_as_ubyte(content))
+            imageio.imwrite(self.prefix + 'fragments/' + hash + '.png', (content*255).astype(np.uint8))
 
         print("Added %s rows" % (len(data)))
 
@@ -47,15 +51,16 @@ class SocialProcessor:
         c.executemany('INSERT INTO global_table VALUES (%s,%s,%s,%s,%s,%s)',
                       [[img_url, embeddings, created_at, user_id, service, hash]])
         self.connection.commit()
-        imageio.imwrite('fragments/' + hash + '.png', img_as_ubyte(img_area))
+        img_area = cv2.cvtColor(img_area, cv2.COLOR_BGR2RGB)
+        cv2.imwrite('fragments/' + hash + '.png', img_area)
         print("Added 1 row")
 
     def getFacesFromLinks(self, photo_links):
         faces = np.zeros((0, self.size, self.size, 3))
         links = []
         for url in tqdm.tqdm_notebook(photo_links):
-            face_obj = FaceLoader(url, margin=20, prefix=self.prefix)
-            faces_tmp = face_obj.load_and_align_image(margin=20)
+            face_obj = FaceLoader(url, prefix=self.prefix)
+            faces_tmp = face_obj.load_and_align_image()
             if len(faces_tmp) == 0:
                 continue
             faces = np.vstack((faces, faces_tmp))
@@ -63,7 +68,7 @@ class SocialProcessor:
             del face_obj
         return faces, links
 
-    def processVkUser(self, api, ow_id, min_quality=4, des_type='x'):
+    def processVkUser(self, api, ow_id, min_quality=2, des_type='z'):
         photo_links = []
         try:
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200)
@@ -76,8 +81,6 @@ class SocialProcessor:
             return
         offset = 0
         while count > 0:
-            random.shuffle(init_get['items'])
-            init_get['items'] = init_get['items']
             for i in init_get['items']:
                 for j in range(-1, -1 - min_quality, -1):
                     if i['sizes'][j]['type'] == des_type or j == -min_quality:
@@ -87,6 +90,7 @@ class SocialProcessor:
             offset += len(init_get['items'])
             init_get = api.photos.getAll(owner_id=ow_id, extended=1, count=200, offset=offset)
         print("Procesing", ow_id)
+        photo_links = list(set(photo_links))
         faces, links = self.getFacesFromLinks(photo_links[:self.limit])
 
         embedded = FaceLoader.calc_embs_static(self.model, images=faces, batch_size=self.batch)

@@ -7,10 +7,10 @@ from scipy.spatial import distance
 import numpy as np
 from copy import deepcopy
 from shutil import copyfile
-from keras_facenet import FaceNet
 import keras.backend.tensorflow_backend as tb
+
 tb._SYMBOLIC_SCOPE.value = True
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 
 class FaceLoader:
@@ -113,7 +113,9 @@ class FaceLoader:
                 continue
             box = ((face[3:7] * 300 - np.array([left, top, left, top])) / ratio).astype("int")
             (startX_t, startY_t, endX_t, endY_t) = box.astype("int")
-            startX, startY, endX, endY = min(startX_t, endX_t), min(startY_t, endY_t), max(startX_t, endX_t), max(startY_t, endY_t)
+            (startX, startY, endX, endY) = (startX_t, startY_t, endX_t, endY_t)
+            if endX < startX or endY < startY:
+                continue
 
             h_rect = abs(endY - startY)
             w_rect = abs(endX - startX)
@@ -130,6 +132,8 @@ class FaceLoader:
 
             try:
                 cropped = img[startY: endY, startX: endX, :]
+                if cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                    cropped = img[startY_t: endY_t, startX_t: endX_t, :]
             except:
                 print("Failed face on", self.local_url)
                 continue
@@ -146,25 +150,37 @@ class FaceLoader:
 
         return np.array(aligned_images)
 
-    def calc_embs(self, model, images=None, margin=None, batch_size=10):
+    def calc_embs(self, model, images=None, margin=None, batch_size=512):
         if margin is None:
             margin = self.margin
         if images is None:
             images = self.load_and_align_image(margin)
         if len(images) == 0:
             return []
-        embs = model.embeddings(images)
+        aligned_images = FaceLoader.prewhiten(images)
+        pd = []
+        for start in range(0, len(aligned_images), batch_size):
+            pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
+        embs = FaceLoader.l2_normalize(np.concatenate(pd))
         return embs
 
     @staticmethod
     def calc_embs_static(model, images, batch_size=10):
         if len(images) == 0:
             return []
-        embs = model.embeddings(images)
+        aligned_images = FaceLoader.prewhiten(images)
+        pd = []
+        for start in range(0, len(aligned_images), batch_size):
+            pd.append(model.predict_on_batch(aligned_images[start:start + batch_size]))
+        embs = FaceLoader.l2_normalize(np.concatenate(pd))
         return embs
 
     @staticmethod
     def calc_dist(img_emb0, img_emb1):
+        return distance.euclidean(img_emb0, img_emb1)
+
+    @staticmethod
+    def calc_dist_cosine(img_emb0, img_emb1):
         return distance.cosine(img_emb0, img_emb1)
 
     def lossless_resize(self, im, desired_size=300):
